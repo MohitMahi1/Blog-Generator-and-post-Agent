@@ -4,6 +4,14 @@ from app.core.llm import llm
 from app.schemas.models import RouterDecision
 from app.graph.state import State
 
+"""
+    The router node tells the llm, for the given topic
+    we need search in internet or not. 
+    means if topic is recently, then llm did not train upon them
+    so we have to search on internet and help to generate blog.
+"""
+
+# Router prompt
 ROUTER_SYSTEM = """You are a routing module for a technical blog planner.
 
 Decide whether web research is needed BEFORE planning.
@@ -18,6 +26,7 @@ If needs_research=true:
 - For open_book weekly roundup, include queries reflecting last 7 days.
 """
 
+# Router node -: decide need search or not
 def router_node(state: State) -> dict:
     decider = llm.with_structured_output(RouterDecision)
     decision = decider.invoke(
@@ -27,11 +36,11 @@ def router_node(state: State) -> dict:
         ]
     )
 
-    if decision.mode == "open_book":
+    if decision.mode == "open_book": #Latest/news/volatile information
         recency_days = 7
-    elif decision.mode == "hybrid":
+    elif decision.mode == "hybrid": # Evergreen + recent information
         recency_days = 45
-    else:
+    else: # Stable/evergreen knowledge
         recency_days = 3650
 
     return {

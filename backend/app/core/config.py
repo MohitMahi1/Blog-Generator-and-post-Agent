@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 
+# defines a Settings class that also reads all three keys
 class Settings(BaseSettings):
     MISTRAL_API_KEY: str
     TAVILY_API_KEY: str = ""

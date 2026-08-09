@@ -3,6 +3,15 @@ from app.core.llm import llm
 from app.schemas.models import Plan
 from app.graph.state import State
 
+"""
+    Then the topic and all research sources(IF research needed then)
+    are come to orchestrator node and then this node plan -:
+        How to write
+        What's the title 
+        How many section are there in this blog etc
+"""
+
+
 # Orchestrator prompt
 ORCH_SYSTEM = """You are a senior technical writer and developer advocate.
 Produce a highly actionable outline for a technical blog post.
@@ -22,8 +31,9 @@ Grounding:
 Output must match Plan schema.
 """
 
+# Orchestrator node -: Planning node
 def orchestrator_node(state : State) -> dict:
-    planner = llm.with_structured_output(Plan)
+    planner = llm.with_structured_output(Plan) #Planning as per Plan schema
     mode = state.get("mode", "closed_book")
     evidence = state.get("evidence", [])
     

@@ -3,6 +3,7 @@ from typing_extensions import TypedDict
 import operator
 from app.schemas.models import Plan, EvidenceItem
 
+# Define the state
 class State(TypedDict):
     topic: str
     
