@@ -4,12 +4,13 @@ from pydantic import BaseModel, Field
 import operator
 from typing_extensions import TypedDict
 
+
 class Task(BaseModel):
     id: int
     title: str
     goal: str = Field(..., description="One sentence describing what the reader should do/understand.")
-    bullets: List[str] = Field(..., min_length=3, max_length=6)
-    target_words: int = Field(..., description="Target words (120–550).")
+    bullets: List[str] = Field(..., min_length=3, max_length=6, description="3–6 concrete, non-overlapping subpoints to cover in this section.",)
+    target_words: int = Field(..., description="Target words (120–300).")
     tags: List[str] = Field(default_factory=list)
     requires_research: bool = False
     requires_citations: bool = False
@@ -56,7 +57,7 @@ class GlobalImagePlan(BaseModel):
 # Request / Response for API
 class GenerateRequest(BaseModel):
     topic: str
-    as_of: Optional[str] = None   # YYYY-MM-DD, defaults to today
+    as_of: Optional[str] = None 
 
 class GenerateResponse(BaseModel):
     blog_title: str
