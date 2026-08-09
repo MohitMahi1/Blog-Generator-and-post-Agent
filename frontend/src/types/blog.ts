@@ -43,8 +43,8 @@ export interface GenerateResponse {
   mode: string;
   needs_research: boolean;
   sections_count: number;
-  // extra fields we will keep in frontend state
   plan?: Plan | null;
   evidence?: EvidenceItem[];
   image_specs?: ImageSpec[];
+  logs?: string[];
 }
