@@ -11,7 +11,7 @@ class Task(BaseModel):
     title: str
     goal: str = Field(..., description="One sentence describing what the reader should do/understand.")
     bullets: List[str] = Field(..., min_length=3, max_length=6, description="3–6 concrete, non-overlapping subpoints to cover in this section.",)
-    target_words: int = Field(..., description="Target words (120–300).")
+    target_words: int = Field(..., description="Target words (120–150).")
     tags: List[str] = Field(default_factory=list)
     requires_research: bool = False
     requires_citations: bool = False
@@ -66,3 +66,8 @@ class GenerateResponse(BaseModel):
     mode: str
     needs_research: bool
     sections_count: int
+
+    plan: Optional[Plan] = None
+    evidence: List[EvidenceItem] = []
+    image_specs: List[ImageSpec] = []
+    logs: List[str] = []

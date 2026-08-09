@@ -74,45 +74,62 @@ def decide_images(state : State) -> dict:
     
 # Image Generation via google gemini
 def _gemini_generate_image_bytes(prompt: str) -> bytes:
+    """
+    Generate image using Gemini (Nano Banana) and return raw bytes.
+    """
     from google import genai
     from google.genai import types
+    import os
 
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY is not set.")
+        raise RuntimeError("GOOGLE_API_KEY is not set in environment variables.")
 
     client = genai.Client(api_key=api_key)
 
-    resp = client.models.generate_content(
-        model="gemini-2.5-flash-image",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_modalities=["IMAGE"],
-            safety_settings=[
-                types.SafetySetting(
-                    category="HARM_CATEGORY_DANGEROUS_CONTENT",
-                    threshold="BLOCK_ONLY_HIGH",
-                )
-            ],
-        ),
-    )
+    try:
+        response = client.models.generate_content(
+            model="gemini-3.1-flash-lite-image",          # stable name
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE"],
+            ),
+        )
+    except Exception as e:
+        raise RuntimeError(f"Gemini API call failed: {e}")
 
-    parts = getattr(resp, "parts", None)
-    if not parts and getattr(resp, "candidates", None):
+    # ---------- Robust extraction ----------
+    # Method 1: response.parts (newer SDK)
+    if hasattr(response, "parts") and response.parts:
+        for part in response.parts:
+            if hasattr(part, "inline_data") and part.inline_data and part.inline_data.data:
+                return part.inline_data.data
+            # some versions have as_image()
+            if hasattr(part, "as_image"):
+                try:
+                    img = part.as_image()
+                    from io import BytesIO
+                    buf = BytesIO()
+                    img.save(buf, format="PNG")
+                    return buf.getvalue()
+                except Exception:
+                    pass
+
+    # Method 2: candidates[0].content.parts (older style)
+    if hasattr(response, "candidates") and response.candidates:
         try:
-            parts = resp.candidates[0].content.parts
+            parts = response.candidates[0].content.parts
+            for part in parts:
+                if hasattr(part, "inline_data") and part.inline_data and part.inline_data.data:
+                    return part.inline_data.data
         except Exception:
-            parts = None
+            pass
 
-    if not parts:
-        raise RuntimeError("No image content returned.")
-
-    for part in parts:
-        inline = getattr(part, "inline_data", None)
-        if inline and getattr(inline, "data", None):
-            return inline.data
-
-    raise RuntimeError("No inline image bytes found.")
+    # If we reach here → no image was returned
+    raise RuntimeError(
+        "No image data found in Gemini response. "
+        "Possible reasons: safety filter, quota, or model returned only text."
+    )
 
 
 # turns a blog title into a filesystem-safe filename

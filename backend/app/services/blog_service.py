@@ -1,6 +1,6 @@
 from datetime import date
 from app.graph.build import app_graph
-from app.schemas.models import GenerateRequest, GenerateResponse
+from app.schemas.models import GenerateRequest, GenerateResponse, Plan, EvidenceItem, ImageSpec
 
 """
     Its entire job is 
