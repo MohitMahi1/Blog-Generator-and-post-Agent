@@ -1,1 +1,4 @@
 .env
+
+# Generated audit artifacts
+/audit_output/

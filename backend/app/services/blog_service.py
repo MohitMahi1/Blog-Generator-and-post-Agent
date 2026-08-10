@@ -33,44 +33,52 @@ def generate_blog(request: GenerateRequest) -> GenerateResponse:
     logs: List[str] = []
     logs.append(f"Starting generation for topic: {request.topic}")
 
-    # ---------- Collect progress using stream ----------
+    # ---------- Collect progress using a SINGLE stream run ----------
+    # stream_mode=["updates","values"] gives us both per-node logs and the
+    # final full state from ONE graph execution. (Previously the graph ran
+    # twice — stream + invoke — which doubled every LLM call and inflated
+    # the accumulated `sections` list.)
     final_state = None
 
     try:
-        for event in app_graph.stream(initial_state, stream_mode="updates"):
-            # event is usually { "node_name": { ... partial state ... } }
-            if isinstance(event, dict):
-                for node_name, update in event.items():
-                    logs.append(f"➡️ Node finished: {node_name}")
+        for mode, payload in app_graph.stream(
+            initial_state, stream_mode=["updates", "values"]
+        ):
+            if mode == "values":
+                final_state = payload
+                continue
 
-                    if node_name == "router":
-                        mode = update.get("mode")
-                        needs = update.get("needs_research")
-                        logs.append(f"   Router decided → mode={mode}, needs_research={needs}")
+            # updates mode: payload is { node_name: { ... partial state ... } }
+            for node_name, update in payload.items():
+                logs.append(f"➡️ Node finished: {node_name}")
 
-                    elif node_name == "research":
-                        ev_count = len(update.get("evidence", []) or [])
-                        logs.append(f"   Research collected {ev_count} evidence items")
+                if node_name == "router":
+                    mode_val = update.get("mode")
+                    needs = update.get("needs_research")
+                    logs.append(f"   Router decided → mode={mode_val}, needs_research={needs}")
 
-                    elif node_name == "orchestrator":
-                        plan = update.get("plan")
-                        if plan:
-                            task_count = len(plan.tasks) if hasattr(plan, "tasks") else 0
-                            logs.append(f"   Orchestrator created plan with {task_count} tasks")
+                elif node_name == "research":
+                    ev_count = len(update.get("evidence", []) or [])
+                    logs.append(f"   Research collected {ev_count} evidence items")
 
-                    elif node_name == "worker":
-                        logs.append("   Worker finished one section")
+                elif node_name == "orchestrator":
+                    plan = update.get("plan")
+                    if plan:
+                        task_count = len(plan.tasks) if hasattr(plan, "tasks") else 0
+                        logs.append(f"   Orchestrator created plan with {task_count} tasks")
 
-                    elif node_name == "reducer":
-                        logs.append("   Reducer (merge + images) finished")
+                elif node_name == "worker":
+                    logs.append("   Worker finished one section")
 
-        # Get the final complete state
-        final_state = app_graph.invoke(initial_state)
+                elif node_name == "reducer":
+                    logs.append("   Reducer (merge + images) finished")
 
     except Exception as e:
         logs.append(f"❌ Error during graph execution: {str(e)}")
         raise e
 
+    # Safety net: values mode should always yield a final state, but if the
+    # stream produced none, fall back to a single invoke.
     if not final_state:
         final_state = app_graph.invoke(initial_state)
 
@@ -78,6 +86,10 @@ def generate_blog(request: GenerateRequest) -> GenerateResponse:
     queries: List[str] = final_state.get("queries", []) or []
     evidence_raw = final_state.get("evidence", []) or []
     image_specs_raw = final_state.get("image_specs", []) or []
+
+    # The reducer subgraph echoes the accumulated `sections` back into the
+    # parent state, so the same ids can appear twice. Count unique ids.
+    sections_count = len({s[0] for s in final_state.get("sections", [])})
 
     # Convert evidence to proper objects if needed
     evidence: List[EvidenceItem] = []
@@ -104,7 +116,7 @@ def generate_blog(request: GenerateRequest) -> GenerateResponse:
         "final_markdown": final_state.get("final", ""),
         "mode": final_state.get("mode", "closed_book"),
         "needs_research": final_state.get("needs_research", False),
-        "sections_count": len(final_state.get("sections", [])),
+        "sections_count": sections_count,
         "plan": plan.model_dump() if plan and hasattr(plan, "model_dump") else (plan.dict() if plan else None),
         "queries": queries,
         "evidence": [e.model_dump() if hasattr(e, "model_dump") else e.dict() for e in evidence],

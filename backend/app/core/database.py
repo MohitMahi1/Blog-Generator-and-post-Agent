@@ -14,13 +14,84 @@ except ImportError:
     logger.warning("psycopg2 is not installed. Supabase database functionality will be disabled.")
 
 
+# Cached working URL once a candidate succeeds (avoids re-probing on every call).
+_working_url: Optional[str] = None
+
+
+def _repair_candidates(url: str) -> List[str]:
+    """
+    Repair common copy-paste mistakes in Supabase connection URLs.
+
+    Some users paste a URL with a stray extra '@segment' in the middle, e.g.:
+        postgresql://postgres:pass@generate123@db.<ref>.supabase.co:5432/postgres
+    libpq then mis-parses the hostname as "generate123@db.<ref>.supabase.co".
+
+    We return candidate URLs to try, in order of likelihood:
+      A) drop the stray middle segment(s),
+      B) treat the stray fragment before the host as the real password.
+    """
+    if "://" not in url:
+        return [url]
+    scheme, rest = url.split("://", 1)
+
+    # Split on the LAST '@' — everything after it is the true host[:port]/db.
+    userinfo_part, at, host = rest.rpartition("@")
+    if not at:
+        return [url]  # no '@' at all; nothing to repair
+
+    head_segments = userinfo_part.split("@")
+    candidates = []
+
+    # A: drop stray fragments — keep the first user[:pass] segment as-is.
+    cand_a = f"{scheme}://{head_segments[0]}@{host}"
+    if cand_a != url:
+        candidates.append(cand_a)
+
+    # B: the last stray fragment is often the real password (the userinfo one
+    # may be truncated or junk). Only if it looks like a password.
+    if len(head_segments) >= 2:
+        stray = head_segments[-1]
+        user = head_segments[0].split(":")[0]
+        if stray and "/" not in stray and ":" not in stray:
+            candidates.append(f"{scheme}://{user}:{stray}@{host}")
+
+    return candidates or [url]
+
+
+def _try_connect(url: str):
+    try:
+        return psycopg2.connect(url)
+    except Exception:
+        # Supabase requires SSL; retry with sslmode=require when not specified.
+        if "sslmode" not in url:
+            sep = "&" if "?" in url else "?"
+            return psycopg2.connect(f"{url}{sep}sslmode=require")
+        raise
+
+
 def get_connection():
+    global _working_url
     if not PSYCOPG2_AVAILABLE:
         raise RuntimeError("psycopg2 module is not installed.")
     if not settings.DATABASE_URL or "[YOUR-PASSWORD]" in settings.DATABASE_URL:
         raise ValueError("DATABASE_URL is not set or still contains placeholder password.")
-    
-    return psycopg2.connect(settings.DATABASE_URL)
+
+    if _working_url:
+        return _try_connect(_working_url)
+
+    last_error = None
+    for candidate in _repair_candidates(settings.DATABASE_URL):
+        try:
+            conn = _try_connect(candidate)
+            if candidate != settings.DATABASE_URL:
+                logger.warning("DATABASE_URL was malformed; using repaired connection string.")
+            _working_url = candidate
+            return conn
+        except Exception as e:
+            last_error = e
+            continue
+
+    raise last_error if last_error else RuntimeError("Could not connect to database.")
 
 
 def init_db():
@@ -33,8 +104,12 @@ def init_db():
         conn = get_connection()
         with conn:
             with conn.cursor() as cur:
-                # Enable pgcrypto extension if needed for gen_random_uuid
-                cur.execute("CREATE EXTENSION IF NOT EXISTS \"pgcrypto\";")
+                # Enable pgcrypto extension if needed for gen_random_uuid.
+                # Supabase may deny CREATE EXTENSION; gen_random_uuid is built-in on PG13+.
+                try:
+                    cur.execute("CREATE EXTENSION IF NOT EXISTS \"pgcrypto\";")
+                except Exception as e:
+                    logger.warning(f"Could not create pgcrypto extension (continuing): {e}")
                 
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS blogs (
@@ -122,6 +197,7 @@ def get_blogs_by_session(session_id: str) -> List[Dict[str, Any]]:
                     SELECT id::text AS blog_id, session_id, blog_title, created_at::text AS created_at
                     FROM blogs
                     WHERE session_id = %s
+                      AND created_at > NOW() - INTERVAL '15 minutes'
                     ORDER BY created_at DESC;
                     """,
                     (session_id,)

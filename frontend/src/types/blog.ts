@@ -62,3 +62,32 @@ export interface BlogListItem {
 export interface BlogListResponse {
   blogs: BlogListItem[];
 }
+
+/* ---------- Chat message types ---------- */
+
+export interface TextMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  kind: 'text';
+  text: string;
+}
+
+export interface BlogMessage {
+  id: string;
+  role: 'assistant';
+  kind: 'blog';
+  text: string;
+  blog: GenerateResponse;
+}
+
+export type ChatMessage = TextMessage | BlogMessage;
+
+export type FlowStage =
+  | 'idle'           // no conversation yet
+  | 'generating'     // blog is being generated
+  | 'ask_download'   // waiting for yes/no on downloading
+  | 'ask_format'     // waiting for format choice (md/pdf/word)
+  | 'ask_post'       // waiting for yes/no on posting
+  | 'done';          // flow finished (nothing happens on post yet)
+
+export type DownloadFormat = 'md' | 'pdf' | 'word';

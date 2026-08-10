@@ -48,8 +48,11 @@ class ImageSpec(BaseModel):
     alt: str
     caption: str
     prompt: str
-    size: Literal["1024x1024", "1024x1536", "1536x1024"] = "1024x1024"
-    quality: Literal["low", "medium", "high"] = "medium"
+    # Plain strings (not Literal) on purpose: the LLM occasionally emits an
+    # arbitrary size like "1566x1536", which used to crash structured output.
+    # decide_images normalizes these to known values before use.
+    size: str = "1024x1024"
+    quality: str = "medium"
 
 class GlobalImagePlan(BaseModel):
     md_with_placeholders: str

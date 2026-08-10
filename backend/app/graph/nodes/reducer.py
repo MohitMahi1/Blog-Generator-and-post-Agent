@@ -1,7 +1,8 @@
-import os, re
+import re
 from pathlib import Path
 from langchain_core.messages import SystemMessage, HumanMessage
 from app.core.llm import llm
+from app.core.config import settings
 from app.schemas.models import GlobalImagePlan
 from app.graph.state import State
 
@@ -12,6 +13,22 @@ from app.graph.state import State
     blog.
 """
 
+def _sanitize_links(md: str, allowed_urls: set) -> str:
+    """
+    Drop markdown links that are malformed (title-as-URL, spaces) or point at
+    a URL that was never in the evidence set. Keeps only links to allowed
+    sources, guaranteeing every citation resolves to real research.
+    """
+    def repl(m):
+        text, url = m.group(1), m.group(2).rstrip(")")
+        if re.match(r"^https?://\S+$", url) and url in allowed_urls:
+            return m.group(0)
+        return text
+
+    # Negative lookbehind so ![alt](...) image syntax is never touched.
+    return re.sub(r"(?<!\!)\[([^\]]+)\]\(([^)]*)\)", repl, md)
+
+
 # Merge content
 def merge_content(state: State) -> dict:
     plan = state["plan"]
@@ -20,12 +37,14 @@ def merge_content(state: State) -> dict:
     if plan is None:
         raise ValueError("merge_content called without plan.")
     
-    # The worker may finish in different order, so we have to sort them
-    ordered_sections = [
-        md for _, md in sorted(
-            state["sections"], key=lambda x: x[0]
-        )
-    ]
+    # The worker may finish in different order, so we have to sort them.
+    # Dedupe by task id first: the parent can echo `sections` back into this
+    # subgraph's input, which would otherwise duplicate every section.
+    sections_by_id = {}
+    for task_id, md in state["sections"]:
+        sections_by_id[task_id] = md
+    allowed_urls = {e.url for e in state.get("evidence", [])}
+    ordered_sections = [_sanitize_links(sections_by_id[i], allowed_urls) for i in sorted(sections_by_id)]
     
     body = "\n\n".join(ordered_sections).strip()
     merged_md = f"# {plan.blog_title}\n\n{body}\n"
@@ -66,8 +85,16 @@ def decide_images(state : State) -> dict:
         ]
     )
     
-    # Restrict to maximum 1 image as requested
-    selected_images = [img.model_dump() for img in image_plan.images[:1]]
+    # Restrict to maximum 1 image as requested, normalizing size/quality so a
+    # stray value from the LLM can never crash the pipeline.
+    valid_sizes = {"1024x1024", "1024x1536", "1536x1024"}
+    valid_quality = {"low", "medium", "high"}
+    selected_images = []
+    for img in image_plan.images[:1]:
+        spec = img.model_dump()
+        spec["size"] = spec.get("size") if spec.get("size") in valid_sizes else "1024x1024"
+        spec["quality"] = spec.get("quality") if spec.get("quality") in valid_quality else "medium"
+        selected_images.append(spec)
     
     return {
         "md_with_placeholders": image_plan.md_with_placeholders,
@@ -82,9 +109,8 @@ def _gemini_generate_image_bytes(prompt: str) -> bytes:
     """
     from google import genai
     from google.genai import types
-    import os
 
-    api_key = os.environ.get("GOOGLE_API_KEY")
+    api_key = settings.GOOGLE_API_KEY
     if not api_key:
         raise RuntimeError("GOOGLE_API_KEY is not set in environment variables.")
 

@@ -17,7 +17,8 @@ ORCH_SYSTEM = """You are a senior technical writer and developer advocate.
 Produce a highly actionable outline for a technical blog post.
 
 Requirements:
-- 5–9 tasks, each with goal + 3–6 bullets + target_words.
+- EXACTLY 5–7 tasks (hard cap of 7 — never more). One task = one section.
+- Each task: goal + 3–6 bullets + target_words.
 - Tags are flexible.
 
 Grounding:
@@ -39,6 +40,16 @@ def orchestrator_node(state : State) -> dict:
     
     forced_kind = "news_roundup" if mode == "open_book" else None
     
+    # Compact evidence summary — full dicts with long snippets burn tokens.
+    # Only needed when the router actually did research.
+    if evidence and mode != "closed_book":
+        evidence_text = "\n".join(
+            f"- {(e.title or 'Untitled')[:120]} | {e.url} | {(e.snippet or '')[:200]}"
+            for e in evidence[:10]
+        )
+    else:
+        evidence_text = "(no research available — evergreen content)"
+    
     plan = planner.invoke(
         [
             SystemMessage(content=ORCH_SYSTEM),
@@ -48,7 +59,7 @@ def orchestrator_node(state : State) -> dict:
                     f"Mode: {mode}\n"
                     f"As-of: {state['as_of']} (recency_days={state['recency_days']})\n"
                     f"{'Force blog_kind=news_roundup' if forced_kind else ''}\n\n"
-                    f"Evidence:\n{[e.model_dump() for e in evidence][:16]}"
+                    f"Evidence:\n{evidence_text}"
                 )
             ),
         ]
