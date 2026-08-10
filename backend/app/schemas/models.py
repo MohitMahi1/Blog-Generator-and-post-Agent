@@ -11,7 +11,7 @@ class Task(BaseModel):
     title: str
     goal: str = Field(..., description="One sentence describing what the reader should do/understand.")
     bullets: List[str] = Field(..., min_length=3, max_length=6, description="3–6 concrete, non-overlapping subpoints to cover in this section.",)
-    target_words: int = Field(..., description="Target words (120–150).")
+    target_words: int = Field(..., description="Target words (50–100).")
     tags: List[str] = Field(default_factory=list)
     requires_research: bool = False
     requires_citations: bool = False
@@ -59,8 +59,11 @@ class GlobalImagePlan(BaseModel):
 class GenerateRequest(BaseModel):
     topic: str
     as_of: Optional[str] = None 
+    session_id: Optional[str] = None
 
 class GenerateResponse(BaseModel):
+    blog_id: Optional[str] = None
+    session_id: Optional[str] = None
     blog_title: str
     final_markdown: str
     mode: str
@@ -68,6 +71,16 @@ class GenerateResponse(BaseModel):
     sections_count: int
 
     plan: Optional[Plan] = None
+    queries: List[str] = []
     evidence: List[EvidenceItem] = []
     image_specs: List[ImageSpec] = []
     logs: List[str] = []
+
+class BlogListItem(BaseModel):
+    blog_id: str
+    blog_title: str
+    created_at: str
+    session_id: str
+
+class BlogListResponse(BaseModel):
+    blogs: List[BlogListItem] = []

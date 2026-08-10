@@ -1,16 +1,17 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Sidebar from "./components/Sidebar";
 import PlanTab from "./components/PlanTab";
 import EvidenceTab from "./components/EvidenceTab";
 import PreviewTab from "./components/PreviewTab";
 import ImagesTab from "./components/ImagesTab";
 import LogsTab from "./components/LogsTab";
-import { generateBlog } from "./api/blog";
+import { generateBlog, getSessionId, fetchSessionBlogs, fetchBlogById } from "./api/blog";
 import type {
   GenerateResponse,
   Plan,
   EvidenceItem,
   ImageSpec,
+  BlogListItem,
 } from "./types/blog";
 
 type Tab = "plan" | "evidence" | "preview" | "images" | "logs";
@@ -23,14 +24,32 @@ export default function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [result, setResult] = useState<GenerateResponse | null>(null);
 
-  // We keep extra fields that the current simple API does not return yet
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [queries, setQueries] = useState<string[]>([]);
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [imageSpecs, setImageSpecs] = useState<ImageSpec[]>([]);
+
+  // Session & history states
+  const [sessionId] = useState<string>(() => getSessionId());
+  const [recentBlogs, setRecentBlogs] = useState<BlogListItem[]>([]);
+  const [activeBlogId, setActiveBlogId] = useState<string | null>(null);
 
   const addLog = (msg: string) => {
     setLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
   };
+
+  const loadRecentBlogs = async () => {
+    try {
+      const list = await fetchSessionBlogs(sessionId);
+      setRecentBlogs(list);
+    } catch (err) {
+      console.error("Failed to load session blogs:", err);
+    }
+  };
+
+  useEffect(() => {
+    loadRecentBlogs();
+  }, [sessionId]);
 
   const handleGenerate = async () => {
     if (!topic.trim()) return;
@@ -39,30 +58,70 @@ export default function App() {
     setLogs([]);
     setResult(null);
     setPlan(null);
+    setQueries([]);
     setEvidence([]);
     setImageSpecs([]);
+    setActiveBlogId(null);
     setActiveTab("logs");
 
     addLog("Starting generation…");
 
     try {
-      const data = await generateBlog(topic, asOf);
+      const data = await generateBlog(topic, asOf, sessionId);
       setResult(data);
 
-      // NEW: populate the extra states
       setPlan(data.plan || null);
+      setQueries(data.queries || []);
       setEvidence(data.evidence || []);
       setImageSpecs(data.image_specs || []);
       setLogs(data.logs || []);
+      if (data.blog_id) {
+        setActiveBlogId(data.blog_id);
+      }
 
       addLog(`✅ Done — Mode: ${data.mode}, Sections: ${data.sections_count}`);
       setActiveTab("preview");
+      loadRecentBlogs();
     } catch (err: any) {
       console.error(err);
       addLog(`❌ Error: ${err?.response?.data?.detail || err.message}`);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSelectBlog = async (blogId: string) => {
+    try {
+      setLoading(true);
+      const data = await fetchBlogById(blogId);
+      setResult(data);
+      setActiveBlogId(blogId);
+      setTopic(data.plan?.blog_title || data.blog_title || "");
+      setPlan(data.plan || null);
+      setQueries(data.queries || []);
+      setEvidence(data.evidence || []);
+      setImageSpecs(data.image_specs || []);
+      setLogs(data.logs || []);
+      setActiveTab("preview");
+    } catch (err: any) {
+      console.error("Failed to load blog:", err);
+      alert("Failed to load blog details or blog has expired.");
+      loadRecentBlogs();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNewBlog = () => {
+    setResult(null);
+    setPlan(null);
+    setQueries([]);
+    setEvidence([]);
+    setImageSpecs([]);
+    setLogs([]);
+    setActiveBlogId(null);
+    setTopic("");
+    setActiveTab("plan");
   };
 
   const tabs: { id: Tab; label: string }[] = [
@@ -82,6 +141,10 @@ export default function App() {
         setAsOf={setAsOf}
         onGenerate={handleGenerate}
         loading={loading}
+        recentBlogs={recentBlogs}
+        activeBlogId={activeBlogId}
+        onSelectBlog={handleSelectBlog}
+        onNewBlog={handleNewBlog}
       />
 
       <main className="flex-1 p-6">
@@ -105,7 +168,7 @@ export default function App() {
         {/* Content */}
         <div className="bg-white rounded-xl border border-slate-200 p-6 min-h-[600px]">
           {activeTab === "plan" && <PlanTab plan={plan} />}
-          {activeTab === "evidence" && <EvidenceTab evidence={evidence} />}
+          {activeTab === "evidence" && <EvidenceTab evidence={evidence} queries={queries} />}
           {activeTab === "preview" && (
             <PreviewTab
               markdown={result?.final_markdown || ""}

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -7,6 +8,8 @@ interface Props {
 }
 
 export default function PreviewTab({ markdown, title }: Props) {
+  const [copiedStatus, setCopiedStatus] = useState<string | null>(null);
+
   if (!markdown) {
     return <div className="text-slate-500">No markdown generated yet.</div>;
   }
@@ -21,16 +24,44 @@ export default function PreviewTab({ markdown, title }: Props) {
     URL.revokeObjectURL(url);
   };
 
+  const postToMedium = async () => {
+    try {
+      await navigator.clipboard.writeText(markdown);
+      setCopiedStatus('✅ Blog copied to clipboard! Opening Medium story editor…');
+      setTimeout(() => {
+        window.open('https://medium.com/new-story', '_blank');
+        setCopiedStatus(null);
+      }, 1200);
+    } catch (err) {
+      console.error(err);
+      window.open('https://medium.com/new-story', '_blank');
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* Download button */}
-      <div className="flex gap-3">
-        <button
-          onClick={downloadMd}
-          className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-700 transition"
-        >
-          ⬇️ Download Markdown
-        </button>
+      {/* Action buttons */}
+      <div className="flex items-center justify-between flex-wrap gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+        <div className="flex gap-3">
+          <button
+            onClick={downloadMd}
+            className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-700 font-medium transition flex items-center gap-1.5 shadow-sm"
+          >
+            ⬇️ Download Markdown
+          </button>
+          <button
+            onClick={postToMedium}
+            className="px-4 py-2 bg-black text-white rounded-lg text-sm hover:bg-slate-900 font-medium transition flex items-center gap-1.5 shadow-sm border border-slate-700"
+          >
+            ✍️ Post to Medium
+          </button>
+        </div>
+
+        {copiedStatus && (
+          <div className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-md border border-emerald-200 animate-fade-in">
+            {copiedStatus}
+          </div>
+        )}
       </div>
 
       {/* Blog-style container */}

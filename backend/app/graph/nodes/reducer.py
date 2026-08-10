@@ -33,14 +33,14 @@ def merge_content(state: State) -> dict:
 
 # Decide all the details of image in prompt.
 DECIDE_IMAGES_SYSTEM = """You are an expert technical editor.
-Decide if images/diagrams are needed for THIS blog.
+Decide if an image/diagram is needed for THIS blog.
 
 Rules:
-- Max 3 images total.
-- Each image must materially improve understanding (diagram/flow/table-like visual).
-- Insert placeholders exactly: [[IMAGE_1]], [[IMAGE_2]], [[IMAGE_3]].
-- If no images needed: md_with_placeholders must equal input and images=[].
-- Avoid decorative images; prefer technical diagrams with short labels.
+- Max 1 image total.
+- The image must materially improve understanding (diagram/flow/header visual).
+- Insert placeholder exactly: [[IMAGE_1]].
+- If no image needed: md_with_placeholders must equal input and images=[].
+- Prefer technical diagrams with short labels.
 Return strictly GlobalImagePlan.
 """
 
@@ -66,16 +66,19 @@ def decide_images(state : State) -> dict:
         ]
     )
     
+    # Restrict to maximum 1 image as requested
+    selected_images = [img.model_dump() for img in image_plan.images[:1]]
+    
     return {
         "md_with_placeholders": image_plan.md_with_placeholders,
-        "image_specs": [img.model_dump() for img in image_plan.images],
+        "image_specs": selected_images,
     }
     
     
 # Image Generation via google gemini
 def _gemini_generate_image_bytes(prompt: str) -> bytes:
     """
-    Generate image using Gemini (Nano Banana) and return raw bytes.
+    Generate image using Gemini/Imagen and return raw bytes.
     """
     from google import genai
     from google.genai import types
@@ -87,48 +90,53 @@ def _gemini_generate_image_bytes(prompt: str) -> bytes:
 
     client = genai.Client(api_key=api_key)
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-3.1-flash-lite-image",          # stable name
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_modalities=["IMAGE"],
-            ),
-        )
-    except Exception as e:
-        raise RuntimeError(f"Gemini API call failed: {e}")
+    models_to_try = [
+        "imagen-3.0-generate-002",
+        "gemini-2.5-flash",
+        "gemini-3.1-flash-lite-image",
+    ]
 
-    # ---------- Robust extraction ----------
-    # Method 1: response.parts (newer SDK)
-    if hasattr(response, "parts") and response.parts:
-        for part in response.parts:
-            if hasattr(part, "inline_data") and part.inline_data and part.inline_data.data:
-                return part.inline_data.data
-            # some versions have as_image()
-            if hasattr(part, "as_image"):
+    last_error = None
+    for model_name in models_to_try:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                ),
+            )
+
+            # Method 1: response.parts
+            if hasattr(response, "parts") and response.parts:
+                for part in response.parts:
+                    if hasattr(part, "inline_data") and part.inline_data and part.inline_data.data:
+                        return part.inline_data.data
+                    if hasattr(part, "as_image"):
+                        try:
+                            img = part.as_image()
+                            from io import BytesIO
+                            buf = BytesIO()
+                            img.save(buf, format="PNG")
+                            return buf.getvalue()
+                        except Exception:
+                            pass
+
+            # Method 2: candidates[0].content.parts
+            if hasattr(response, "candidates") and response.candidates:
                 try:
-                    img = part.as_image()
-                    from io import BytesIO
-                    buf = BytesIO()
-                    img.save(buf, format="PNG")
-                    return buf.getvalue()
+                    parts = response.candidates[0].content.parts
+                    for part in parts:
+                        if hasattr(part, "inline_data") and part.inline_data and part.inline_data.data:
+                            return part.inline_data.data
                 except Exception:
                     pass
+        except Exception as e:
+            last_error = e
+            continue
 
-    # Method 2: candidates[0].content.parts (older style)
-    if hasattr(response, "candidates") and response.candidates:
-        try:
-            parts = response.candidates[0].content.parts
-            for part in parts:
-                if hasattr(part, "inline_data") and part.inline_data and part.inline_data.data:
-                    return part.inline_data.data
-        except Exception:
-            pass
-
-    # If we reach here → no image was returned
     raise RuntimeError(
-        "No image data found in Gemini response. "
-        "Possible reasons: safety filter, quota, or model returned only text."
+        f"No image data found from models {models_to_try}. Last error: {last_error}"
     )
 
 
@@ -148,8 +156,6 @@ def generate_and_place_images(state: State) -> dict:
     image_specs = state.get("image_specs", []) or []
 
     if not image_specs:
-        filename = f"{_safe_slug(plan.blog_title)}.md"
-        Path(filename).write_text(md, encoding="utf-8")
         return {"final": md}
 
     images_dir = Path("images")
@@ -177,6 +183,4 @@ def generate_and_place_images(state: State) -> dict:
         img_md = f"![{spec['alt']}](images/{filename})\n*{spec['caption']}*"
         md = md.replace(placeholder, img_md)
 
-    filename = f"{_safe_slug(plan.blog_title)}.md"
-    Path(filename).write_text(md, encoding="utf-8")
     return {"final": md}

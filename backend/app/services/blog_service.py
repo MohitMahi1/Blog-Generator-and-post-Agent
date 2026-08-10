@@ -75,6 +75,7 @@ def generate_blog(request: GenerateRequest) -> GenerateResponse:
         final_state = app_graph.invoke(initial_state)
 
     plan: Plan | None = final_state.get("plan")
+    queries: List[str] = final_state.get("queries", []) or []
     evidence_raw = final_state.get("evidence", []) or []
     image_specs_raw = final_state.get("image_specs", []) or []
 
@@ -98,13 +99,39 @@ def generate_blog(request: GenerateRequest) -> GenerateResponse:
 
     logs.append("✅ Generation completed")
 
+    response_data = {
+        "blog_title": plan.blog_title if plan else "Untitled",
+        "final_markdown": final_state.get("final", ""),
+        "mode": final_state.get("mode", "closed_book"),
+        "needs_research": final_state.get("needs_research", False),
+        "sections_count": len(final_state.get("sections", [])),
+        "plan": plan.model_dump() if plan and hasattr(plan, "model_dump") else (plan.dict() if plan else None),
+        "queries": queries,
+        "evidence": [e.model_dump() if hasattr(e, "model_dump") else e.dict() for e in evidence],
+        "image_specs": [img.model_dump() if hasattr(img, "model_dump") else img.dict() for img in image_specs],
+        "logs": logs,
+    }
+
+    blog_id = None
+    if request.session_id:
+        try:
+            from app.core.database import save_blog
+            blog_id = save_blog(request.session_id, response_data)
+            if blog_id:
+                logs.append(f"💾 Saved blog to database with ID: {blog_id}")
+        except Exception as err:
+            logs.append(f"⚠️ Failed to save blog to DB: {err}")
+
     return GenerateResponse(
-        blog_title=plan.blog_title if plan else "Untitled",
-        final_markdown=final_state.get("final", ""),
-        mode=final_state.get("mode", "closed_book"),
-        needs_research=final_state.get("needs_research", False),
-        sections_count=len(final_state.get("sections", [])),
+        blog_id=blog_id,
+        session_id=request.session_id,
+        blog_title=response_data["blog_title"],
+        final_markdown=response_data["final_markdown"],
+        mode=response_data["mode"],
+        needs_research=response_data["needs_research"],
+        sections_count=response_data["sections_count"],
         plan=plan,
+        queries=queries,
         evidence=evidence,
         image_specs=image_specs,
         logs=logs,

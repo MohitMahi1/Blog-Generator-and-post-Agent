@@ -38,13 +38,27 @@ export interface ImageSpec {
 }
 
 export interface GenerateResponse {
+  blog_id?: string | null;
+  session_id?: string | null;
   blog_title: string;
   final_markdown: string;
   mode: string;
   needs_research: boolean;
   sections_count: number;
   plan?: Plan | null;
+  queries?: string[];
   evidence?: EvidenceItem[];
   image_specs?: ImageSpec[];
   logs?: string[];
+}
+
+export interface BlogListItem {
+  blog_id: string;
+  blog_title: string;
+  created_at: string;
+  session_id: string;
+}
+
+export interface BlogListResponse {
+  blogs: BlogListItem[];
 }

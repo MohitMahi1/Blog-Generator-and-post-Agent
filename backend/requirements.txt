@@ -12,3 +12,4 @@ langchain-community
 tavily-python
 google-genai
 python-multipart
+psycopg2-binary
