@@ -1,7 +1,6 @@
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
 
-from langgraph.types import Send
 from app.graph.state import State
 from app.graph.nodes.router import router_node, route_next
 from app.graph.nodes.research import research_node

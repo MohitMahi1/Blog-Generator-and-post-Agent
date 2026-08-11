@@ -37,3 +37,9 @@ def delete_blog(blog_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail="Blog not found or could not be deleted.")
     return {"status": "deleted", "blog_id": blog_id}
+
+@router.delete("/blogs/{session_id}")
+def delete_session_blogs(session_id: str):
+    """Delete all blogs belonging to a session (used when a user refreshes the page)."""
+    deleted = database.delete_blogs_by_session(session_id)
+    return {"status": "deleted", "session_id": session_id, "deleted_count": deleted}

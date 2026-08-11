@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInput from './components/ChatInput';
 import ChatMessage, { type Chip } from './components/ChatMessage';
-import { generateBlog, getSessionId, fetchSessionBlogs, fetchBlogById } from './api/blog';
+import { generateBlog, startNewSession, fetchSessionBlogs, fetchBlogById } from './api/blog';
 import { downloadByFormat } from './utils/download';
 import type {
   ChatMessage as ChatMessageType,
@@ -75,8 +75,10 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
 
-  // Session & history states
-  const [sessionId] = useState<string>(() => getSessionId());
+  // Session & history states. startNewSession() wipes the previous session's
+  // blogs on page load (refresh = old blogs deleted) and issues a fresh id;
+  // clicking "New chat" keeps this same id so blogs stay for 15 minutes.
+  const [sessionId] = useState<string>(() => startNewSession());
   const [recentBlogs, setRecentBlogs] = useState<BlogListItem[]>([]);
   const [activeBlogId, setActiveBlogId] = useState<string | null>(null);
 

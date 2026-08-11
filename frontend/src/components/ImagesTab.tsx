@@ -1,5 +1,7 @@
 import type { ImageSpec } from '../types/blog';
 
+const API_URL = import.meta.env.VITE_API_URL || '';
+
 export default function ImagesTab({ specs = [] }: { specs?: ImageSpec[] }) {
   if (specs.length === 0) {
     return <div className="text-slate-500">No images generated for this blog.</div>;
@@ -11,7 +13,7 @@ export default function ImagesTab({ specs = [] }: { specs?: ImageSpec[] }) {
         {specs.map((spec) => (
           <div key={spec.filename} className="bg-white border border-slate-200 rounded-xl p-4">
             <img
-              src={`http://localhost:8000/images/${spec.filename}`}
+              src={`${API_URL}/images/${spec.filename}`}
               alt={spec.alt}
               className="rounded-lg w-full object-cover"
               onError={(e) => {

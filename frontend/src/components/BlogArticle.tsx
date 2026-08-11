@@ -1,6 +1,8 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+const API_URL = import.meta.env.VITE_API_URL || '';
+
 interface Props {
   markdown: string;
 }
@@ -29,7 +31,7 @@ export default function BlogArticle({ markdown }: Props) {
         components={{
           img: ({ src, alt }) => (
             <img
-              src={src?.startsWith('http') ? src : `http://localhost:8000/${src}`}
+              src={src?.startsWith('http') ? src : `${API_URL}/${src}`}
               alt={alt || ''}
               className="rounded-xl my-8 w-full object-cover shadow-md"
             />

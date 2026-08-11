@@ -6,7 +6,6 @@ pydantic-settings
 langgraph
 langchain
 langchain-core
-langchain-openai
 langchain-mistralai
 langchain-community
 tavily-python

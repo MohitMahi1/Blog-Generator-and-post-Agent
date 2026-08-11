@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str = ""
     GOOGLE_API_KEY: str = ""
     DATABASE_URL: str = ""
+    # Supabase region (e.g. "ap-northeast-1") used to derive the IPv4-compatible
+    # connection-pooler URL when DATABASE_URL uses the direct (IPv6-only) host.
+    SUPABASE_REGION: str = ""
 
     class Config:
         env_file = ".env"

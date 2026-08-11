@@ -18,6 +18,42 @@ except ImportError:
 _working_url: Optional[str] = None
 
 
+def _pooler_candidate(clean_url: str) -> Optional[str]:
+    """
+    Derive a Supabase connection-pooler URL from a direct-connection URL.
+
+    Newer Supabase projects expose their direct host (db.<ref>.supabase.co) over
+    IPv6 only, which fails on machines/networks without IPv6. The connection
+    pooler (aws-0-<region>.pooler.supabase.com:6543) is IPv4-compatible.
+    Requires SUPABASE_REGION to be configured.
+    """
+    region = settings.SUPABASE_REGION
+    if not region or ".pooler.supabase.com" in clean_url or "supabase.co" not in clean_url:
+        return None
+    try:
+        from urllib.parse import urlparse
+        u = urlparse(clean_url)
+        labels = (u.hostname or "").split(".")
+        if len(labels) < 2 or labels[0] != "db":
+            return None
+        ref = labels[1]
+        if not u.username or not u.password:
+            return None
+        dbname = (u.path or "/postgres").lstrip("/").split("/")[0]
+        # NOTE: urlparse() returns username/password WITHOUT percent-decoding
+        # them, so embedding them as-is preserves the original encoding and
+        # cannot double-encode (or corrupt) special characters.
+        user = u.username + "." + ref
+        pwd = u.password
+        return (
+            f"postgresql://{user}:{pwd}"
+            f"@aws-0-{region}.pooler.supabase.com:6543/{dbname}"
+        )
+    except Exception as e:
+        logger.warning(f"Could not derive pooler URL from {clean_url!r}: {e}")
+        return None
+
+
 def _repair_candidates(url: str) -> List[str]:
     """
     Repair common copy-paste mistakes in Supabase connection URLs.
@@ -28,7 +64,8 @@ def _repair_candidates(url: str) -> List[str]:
 
     We return candidate URLs to try, in order of likelihood:
       A) drop the stray middle segment(s),
-      B) treat the stray fragment before the host as the real password.
+      B) treat the stray fragment before the host as the real password,
+      C) if SUPABASE_REGION is configured, the IPv4-compatible pooler URL.
     """
     if "://" not in url:
         return [url]
@@ -54,6 +91,12 @@ def _repair_candidates(url: str) -> List[str]:
         user = head_segments[0].split(":")[0]
         if stray and "/" not in stray and ":" not in stray:
             candidates.append(f"{scheme}://{user}:{stray}@{host}")
+
+    # C: fall back to the IPv4-compatible connection pooler when the direct
+    # (IPv6-only) host can't be reached.
+    pooler = _pooler_candidate(candidates[0] if candidates else url)
+    if pooler:
+        candidates.append(pooler)
 
     return candidates or [url]
 
@@ -277,6 +320,23 @@ def delete_blog_by_id(blog_id: str) -> bool:
     except Exception as e:
         logger.error(f"Error deleting blog {blog_id}: {e}")
         return False
+
+
+def delete_blogs_by_session(session_id: str) -> int:
+    """Delete all blogs belonging to a session. Returns the number deleted."""
+    try:
+        conn = get_connection()
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM blogs WHERE session_id = %s;", (session_id,))
+                deleted = cur.rowcount
+        conn.close()
+        if deleted > 0:
+            logger.info(f"Deleted {deleted} blog(s) for session {session_id}")
+        return deleted
+    except Exception as e:
+        logger.error(f"Error deleting blogs for session {session_id}: {e}")
+        return 0
 
 
 def delete_old_blogs(max_age_minutes: int = 15) -> int:
