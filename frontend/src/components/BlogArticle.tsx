@@ -29,14 +29,22 @@ export default function BlogArticle({ markdown }: Props) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          img: ({ src, alt }) => (
-            <img
-              src={src?.startsWith('http') ? src : `${API_URL}/${src}`}
-              alt={alt || ''}
-              className="rounded-xl my-8 w-full object-cover shadow-md"
-            />
-          ),
+          img: ({ src, alt }) => {
+            let finalSrc = src || '';
+            if (!finalSrc.startsWith('http')) {
+              const cleanSrc = finalSrc.startsWith('/') ? finalSrc : `/${finalSrc}`;
+              finalSrc = `${API_URL}${cleanSrc}`;
+            }
+            return (
+              <img
+                src={finalSrc}
+                alt={alt || ''}
+                className="rounded-xl my-8 w-full object-cover shadow-md"
+              />
+            );
+          },
         }}
+
       >
         {markdown}
       </ReactMarkdown>
